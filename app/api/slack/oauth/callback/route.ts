@@ -50,9 +50,9 @@ export async function GET(req: NextRequest) {
       installedAt: Date.now(),
     });
 
-    // Redirect to success page
+    // Redirect to Slack
     return NextResponse.redirect(
-      `${process.env.NEXT_PUBLIC_APP_URL}?success=true`
+      `https://app.slack.com/client/${data.team.id}`
     );
   } catch (err) {
     console.error("OAuth callback error:", err);
