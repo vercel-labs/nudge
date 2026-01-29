@@ -1,45 +1,36 @@
 import { NextRequest, NextResponse } from "next/server";
-import { slackUser, TRACKED_USER_ID } from "@/lib/slack";
-import {
-  addFollowUp,
-  isTracked,
-} from "@/lib/redis";
+import { createSlackClient } from "@/lib/slack";
+import { addFollowUp, isTracked } from "@/lib/redis";
 import { classifyResponse, classifyUserMessage } from "@/lib/ai";
+import { getAllUsers, NudgeUser } from "@/lib/db";
 
 // Check if a message is likely a real question (not a URL with query string, etc.)
 function isLikelyQuestion(text: string): boolean {
-  // Must contain a question mark
   if (!text.includes("?")) return false;
-
-  // Filter out messages where ? is only in URLs
   const withoutUrls = text.replace(/https?:\/\/[^\s]+/g, "");
   if (!withoutUrls.includes("?")) return false;
-
-  // Filter out messages that are just emoji reactions or very short
   if (text.trim().length < 5) return false;
-
   return true;
 }
 
-export async function GET(req: NextRequest) {
-  // Verify cron secret
-  const authHeader = req.headers.get("authorization");
-  if (authHeader !== `Bearer ${process.env.CRON_SECRET}`) {
-    return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-  }
-
+async function pollUserMessages(user: NudgeUser): Promise<{
+  messagesSearched: number;
+  questionsFound: number;
+  newTracked: number;
+  errors: string[];
+}> {
   const stats = {
     messagesSearched: 0,
     questionsFound: 0,
     newTracked: 0,
-    resolved: 0,
     errors: [] as string[],
   };
 
+  const slackUser = createSlackClient(user.userToken);
+
   try {
-    // Search for recent messages from the user containing "?"
     const searchResult = await slackUser.search.messages({
-      query: `from:<@${TRACKED_USER_ID}> ?`,
+      query: `from:<@${user.slackUserId}> ?`,
       sort: "timestamp",
       sort_dir: "desc",
       count: 50,
@@ -54,33 +45,24 @@ export async function GET(req: NextRequest) {
       const channel = match.channel.id;
       const messageTs = match.ts;
       const text = match.text;
-      // DMs start with D (1:1) or G (group DMs/mpim in some workspaces)
-      // But safest to check: not a public/private channel (C prefix)
       const isDM = channel.startsWith("D") || channel.startsWith("G");
 
-      // Extract thread_ts from permalink since search API doesn't include it directly
       const permalink = (match as { permalink?: string }).permalink || "";
       const threadTsMatch = permalink.match(/thread_ts=([0-9.]+)/);
       const parentThreadTs = threadTsMatch ? threadTsMatch[1] : undefined;
-      const isInThread = !!parentThreadTs;
 
-      // Skip if already tracked
-      const alreadyTracked = await isTracked(channel, messageTs);
+      const alreadyTracked = await isTracked(user.slackUserId, channel, messageTs);
       if (alreadyTracked) continue;
 
-      // Skip if not a real question
       if (!isLikelyQuestion(text)) continue;
 
       stats.questionsFound++;
 
       try {
         let hasAnswer = false;
-
-        // Determine if this message is inside another thread vs being a thread parent
         const isInsideThread = parentThreadTs && parentThreadTs !== messageTs;
 
         if (isInsideThread) {
-          // Message is INSIDE a thread - check for replies after this message in the parent thread
           const repliesResult = await slackUser.conversations.replies({
             channel,
             ts: parentThreadTs,
@@ -92,15 +74,14 @@ export async function GET(req: NextRequest) {
             .filter(m => m.ts && parseFloat(m.ts) > parseFloat(messageTs))
             .sort((a, b) => parseFloat(a.ts!) - parseFloat(b.ts!));
 
-          // Check ALL replies after the question for answers
           for (const msg of messagesAfter) {
-            if (msg.user !== TRACKED_USER_ID && msg.text) {
+            if (msg.user !== user.slackUserId && msg.text) {
               const classification = await classifyResponse(text, msg.text);
               if (classification === "answer") {
                 hasAnswer = true;
                 break;
               }
-            } else if (msg.user === TRACKED_USER_ID && msg.text) {
+            } else if (msg.user === user.slackUserId && msg.text) {
               const classification = await classifyUserMessage(text, msg.text);
               if (classification === "self-resolved") {
                 hasAnswer = true;
@@ -109,8 +90,6 @@ export async function GET(req: NextRequest) {
             }
           }
         } else if (isDM) {
-          // DM (1:1 or group): Check conversation flow for responses after the question
-          // This is the primary way people respond in DMs (not threads)
           const historyResult = await slackUser.conversations.history({
             channel,
             oldest: messageTs,
@@ -122,13 +101,13 @@ export async function GET(req: NextRequest) {
           const messagesAfterQuestion = allMessages.slice(1);
 
           for (const msg of messagesAfterQuestion) {
-            if (msg.user !== TRACKED_USER_ID && msg.text) {
+            if (msg.user !== user.slackUserId && msg.text) {
               const classification = await classifyResponse(text, msg.text);
               if (classification === "answer") {
                 hasAnswer = true;
                 break;
               }
-            } else if (msg.user === TRACKED_USER_ID && msg.text) {
+            } else if (msg.user === user.slackUserId && msg.text) {
               const classification = await classifyUserMessage(text, msg.text);
               if (classification === "self-resolved") {
                 hasAnswer = true;
@@ -137,7 +116,6 @@ export async function GET(req: NextRequest) {
             }
           }
 
-          // Also check thread replies if no answer found in conversation flow
           if (!hasAnswer) {
             const repliesResult = await slackUser.conversations.replies({
               channel,
@@ -148,13 +126,13 @@ export async function GET(req: NextRequest) {
             const replies = (repliesResult.messages || []).slice(1);
 
             for (const reply of replies) {
-              if (reply.user !== TRACKED_USER_ID && reply.text) {
+              if (reply.user !== user.slackUserId && reply.text) {
                 const classification = await classifyResponse(text, reply.text);
                 if (classification === "answer") {
                   hasAnswer = true;
                   break;
                 }
-              } else if (reply.user === TRACKED_USER_ID && reply.text) {
+              } else if (reply.user === user.slackUserId && reply.text) {
                 const classification = await classifyUserMessage(text, reply.text);
                 if (classification === "self-resolved") {
                   hasAnswer = true;
@@ -164,24 +142,22 @@ export async function GET(req: NextRequest) {
             }
           }
         } else {
-          // Channel message: Check for thread replies
           const repliesResult = await slackUser.conversations.replies({
             channel,
             ts: messageTs,
             limit: 50,
           });
 
-          const replies = (repliesResult.messages || []).slice(1); // Skip the parent message
+          const replies = (repliesResult.messages || []).slice(1);
 
-          // Check ALL replies for answers
           for (const reply of replies) {
-            if (reply.user !== TRACKED_USER_ID && reply.text) {
+            if (reply.user !== user.slackUserId && reply.text) {
               const classification = await classifyResponse(text, reply.text);
               if (classification === "answer") {
                 hasAnswer = true;
                 break;
               }
-            } else if (reply.user === TRACKED_USER_ID && reply.text) {
+            } else if (reply.user === user.slackUserId && reply.text) {
               const classification = await classifyUserMessage(text, reply.text);
               if (classification === "self-resolved") {
                 hasAnswer = true;
@@ -191,12 +167,12 @@ export async function GET(req: NextRequest) {
           }
         }
 
-        // Track if no answer found
         if (!hasAnswer) {
           await addFollowUp({
+            userId: user.slackUserId,
             channel,
-            threadTs: messageTs, // Use the message ts as the unique identifier
-            parentThreadTs, // Store parent thread if in a thread (extracted from permalink)
+            threadTs: messageTs,
+            parentThreadTs,
             originalMessage: text,
             createdAt: parseFloat(messageTs) * 1000,
             lastRemindedAt: null,
@@ -212,8 +188,45 @@ export async function GET(req: NextRequest) {
     stats.errors.push(`Search: ${error}`);
   }
 
+  return stats;
+}
+
+export async function GET(req: NextRequest) {
+  const authHeader = req.headers.get("authorization");
+  if (authHeader !== `Bearer ${process.env.CRON_SECRET}`) {
+    return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+  }
+
+  const users = await getAllUsers();
+
+  if (users.length === 0) {
+    return NextResponse.json({ ok: true, message: "No users registered" });
+  }
+
+  const results = await Promise.all(
+    users.map(async (user) => {
+      const stats = await pollUserMessages(user);
+      return {
+        userId: user.slackUserId,
+        ...stats,
+      };
+    })
+  );
+
+  const totals = results.reduce(
+    (acc, r) => ({
+      messagesSearched: acc.messagesSearched + r.messagesSearched,
+      questionsFound: acc.questionsFound + r.questionsFound,
+      newTracked: acc.newTracked + r.newTracked,
+      errors: [...acc.errors, ...r.errors],
+    }),
+    { messagesSearched: 0, questionsFound: 0, newTracked: 0, errors: [] as string[] }
+  );
+
   return NextResponse.json({
     ok: true,
-    ...stats,
+    usersPolled: users.length,
+    ...totals,
+    perUser: results,
   });
 }

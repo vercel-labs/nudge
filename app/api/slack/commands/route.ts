@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { verifySlackRequest, getThreadLink, escapeSlackText } from "@/lib/slack";
-import { getAllPendingFollowUps } from "@/lib/redis";
+import { getUserFollowUps } from "@/lib/redis";
 
 export async function POST(req: NextRequest) {
   const body = await req.text();
@@ -15,9 +15,10 @@ export async function POST(req: NextRequest) {
   // Parse form data
   const params = new URLSearchParams(body);
   const command = params.get("command");
+  const userId = params.get("user_id");
 
-  if (command === "/followups") {
-    const followUps = await getAllPendingFollowUps();
+  if (command === "/followups" && userId) {
+    const followUps = await getUserFollowUps(userId);
 
     if (followUps.length === 0) {
       return NextResponse.json({
@@ -59,7 +60,7 @@ export async function POST(req: NextRequest) {
           type: "button",
           text: { type: "plain_text", text: "Dismiss", emoji: true },
           action_id: `dismiss_followup_${i}`,
-          value: JSON.stringify({ channel: f.channel, threadTs: f.threadTs }),
+          value: JSON.stringify({ userId, channel: f.channel, threadTs: f.threadTs }),
         },
       });
     });

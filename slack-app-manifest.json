@@ -12,13 +12,16 @@
     "slash_commands": [
       {
         "command": "/followups",
-        "url": "https://YOUR_VERCEL_URL/api/slack/commands",
+        "url": "https://nudge.vercel.app/api/slack/commands",
         "description": "See your pending follow-ups",
         "should_escape": false
       }
     ]
   },
   "oauth_config": {
+    "redirect_urls": [
+      "https://nudge.vercel.app/api/slack/oauth/callback"
+    ],
     "scopes": {
       "user": [
         "channels:history",
@@ -40,7 +43,7 @@
   "settings": {
     "interactivity": {
       "is_enabled": true,
-      "request_url": "https://YOUR_VERCEL_URL/api/slack/interactions"
+      "request_url": "https://nudge.vercel.app/api/slack/interactions"
     },
     "org_deploy_enabled": false,
     "socket_mode_enabled": false,

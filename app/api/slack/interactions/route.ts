@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
-import { verifySlackRequest, slackBot } from "@/lib/slack";
+import { verifySlackRequest, createSlackClient } from "@/lib/slack";
 import { updateFollowUp, removeFollowUp } from "@/lib/redis";
+import { getUser } from "@/lib/db";
 
 export async function POST(req: NextRequest) {
   const body = await req.text();
@@ -20,52 +21,57 @@ export async function POST(req: NextRequest) {
     const action = payload.actions?.[0];
     if (!action) return NextResponse.json({ ok: true });
 
-    const { channel, threadTs } = JSON.parse(action.value || "{}");
+    const actionValue = JSON.parse(action.value || "{}");
+    const { userId, channel, threadTs } = actionValue;
+
+    // Get user's bot token for updating messages
+    const user = userId ? await getUser(userId) : null;
 
     if (action.action_id === "followup_bumped") {
-      // Reset the 24h clock
-      await updateFollowUp(channel, threadTs, {
+      await updateFollowUp(userId, channel, threadTs, {
         lastActivityAt: Date.now(),
         lastRemindedAt: Date.now(),
       });
 
-      // Update the message to confirm
-      await slackBot.chat.update({
-        channel: payload.channel.id,
-        ts: payload.message.ts,
-        text: "Got it - I'll remind you again in 24h if still unresolved.",
-        blocks: [
-          {
-            type: "section",
-            text: {
-              type: "mrkdwn",
-              text: "✓ Got it - I'll remind you again in 24h if still unresolved.",
+      if (user) {
+        const slackBot = createSlackClient(user.botToken);
+        await slackBot.chat.update({
+          channel: payload.channel.id,
+          ts: payload.message.ts,
+          text: "Got it - I'll remind you again in 24h if still unresolved.",
+          blocks: [
+            {
+              type: "section",
+              text: {
+                type: "mrkdwn",
+                text: "✓ Got it - I'll remind you again in 24h if still unresolved.",
+              },
             },
-          },
-        ],
-      });
+          ],
+        });
+      }
     } else if (action.action_id === "followup_resolved") {
-      // Remove from tracking
-      await removeFollowUp(channel, threadTs);
+      await removeFollowUp(userId, channel, threadTs);
 
-      // Update the message to confirm
-      await slackBot.chat.update({
-        channel: payload.channel.id,
-        ts: payload.message.ts,
-        text: "Marked as resolved.",
-        blocks: [
-          {
-            type: "section",
-            text: {
-              type: "mrkdwn",
-              text: "✓ Marked as resolved.",
+      if (user) {
+        const slackBot = createSlackClient(user.botToken);
+        await slackBot.chat.update({
+          channel: payload.channel.id,
+          ts: payload.message.ts,
+          text: "Marked as resolved.",
+          blocks: [
+            {
+              type: "section",
+              text: {
+                type: "mrkdwn",
+                text: "✓ Marked as resolved.",
+              },
             },
-          },
-        ],
-      });
+          ],
+        });
+      }
     } else if (action.action_id.startsWith("dismiss_followup_")) {
-      // Dismiss from /followups list
-      await removeFollowUp(channel, threadTs);
+      await removeFollowUp(userId, channel, threadTs);
 
       // Filter out the dismissed item from the blocks
       const updatedBlocks = payload.message.blocks.filter(
@@ -82,7 +88,7 @@ export async function POST(req: NextRequest) {
 
       // Update the header count
       if (updatedBlocks.length > 0 && updatedBlocks[0].text?.text) {
-        const remaining = updatedBlocks.length - 1; // -1 for header
+        const remaining = updatedBlocks.length - 1;
         updatedBlocks[0].text.text = remaining > 0
           ? `*Pending follow-ups (${remaining}):*`
           : "*All caught up!*";

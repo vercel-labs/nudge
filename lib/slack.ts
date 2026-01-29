@@ -1,13 +1,10 @@
 import { WebClient } from "@slack/web-api";
 import crypto from "crypto";
 
-// Bot token for sending messages (reminders come from "Nudge")
-export const slackBot = new WebClient(process.env.SLACK_BOT_TOKEN);
-
-// User token for reading messages (sees all channels user is in)
-export const slackUser = new WebClient(process.env.SLACK_USER_TOKEN);
-
-export const TRACKED_USER_ID = process.env.SLACK_USER_ID!;
+// Create a WebClient with a specific token
+export function createSlackClient(token: string): WebClient {
+  return new WebClient(token);
+}
 
 export function verifySlackRequest(
   signature: string | null,
@@ -54,45 +51,4 @@ export function escapeSlackText(text: string): string {
     .replace(/\|/g, "│") // Replace pipe with similar unicode char
     .replace(/\n/g, " ") // Replace newlines with space
     .replace(/\r/g, ""); // Remove carriage returns
-}
-
-export async function sendReminder(
-  channel: string,
-  threadTs: string,
-  createdAt: number
-): Promise<void> {
-  const link = getThreadLink(channel, threadTs);
-  const hoursAgo = Math.round((Date.now() - createdAt) / (1000 * 60 * 60));
-
-  await slackBot.chat.postMessage({
-    channel: TRACKED_USER_ID,
-    text: `You asked a question ${hoursAgo}h ago with no resolution: ${link}`,
-    blocks: [
-      {
-        type: "section",
-        text: {
-          type: "mrkdwn",
-          text: `You asked a question *${hoursAgo}h ago* with no resolution:\n<${link}|View thread>`,
-        },
-      },
-      {
-        type: "actions",
-        elements: [
-          {
-            type: "button",
-            text: { type: "plain_text", text: "Bumped", emoji: true },
-            action_id: "followup_bumped",
-            value: JSON.stringify({ channel, threadTs }),
-          },
-          {
-            type: "button",
-            text: { type: "plain_text", text: "Resolved", emoji: true },
-            action_id: "followup_resolved",
-            value: JSON.stringify({ channel, threadTs }),
-            style: "primary",
-          },
-        ],
-      },
-    ],
-  });
 }
