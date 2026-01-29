@@ -1,92 +1,91 @@
 # Nudge
 
-A personal Slack agent that reminds you to follow up on unanswered questions.
+a personal slack agent that reminds you to follow up on unanswered questions.
 
-## How it works
+## how it works
 
-1. **Polls** your Slack messages hourly for questions you've asked (messages with `?`)
-2. **Tracks** questions that don't have substantive answers yet
-3. **Reminds** you via DM at 8am PT and 4pm PT with a digest of pending follow-ups
-4. **Uses AI** to distinguish real answers from non-committal responses ("looking into it", "will check", etc.)
+1. **polls** your slack messages hourly for questions you've asked (messages with `?`)
+2. **tracks** questions that don't have substantive answers yet
+3. **reminds** you via DM at 8am PT and 4pm PT with a digest of pending follow-ups
+4. **uses AI** to distinguish real answers from non-committal responses ("looking into it", "will check", etc.)
 
-## Features
+## features
 
-- Detects questions in channels, DMs, and threads
-- Understands conversation context (thread replies, DM flow)
+- detects questions in channels, DMs, and threads
+- understands conversation context (thread replies, DM flow)
 - `/followups` command to see pending items with dismiss buttons
 - AI-powered classification using Vercel AI Gateway
 
-## Setup
+## quick setup (5 min)
 
-### 1. Create a Slack App
+### 1. create a slack app
 
-1. Go to [api.slack.com/apps](https://api.slack.com/apps) and create a new app
-2. Add the following **Bot Token Scopes**:
-   - `chat:write` - Send reminder DMs
-   - `commands` - Handle `/followups` command
-3. Add the following **User Token Scopes**:
-   - `search:read` - Search your messages
-   - `channels:history` - Read channel messages
-   - `channels:read` - Access channel info
-   - `groups:history` - Read private channel messages
-   - `groups:read` - Access private channel info
-   - `im:history` - Read DM messages
-   - `im:read` - Access DM info
-   - `mpim:history` - Read group DM messages
-   - `mpim:read` - Access group DM info
-4. Install the app to your workspace
-5. Add a Slash Command:
-   - Command: `/followups`
-   - Request URL: `https://your-app.vercel.app/api/slack/commands`
-6. Enable Interactivity:
-   - Request URL: `https://your-app.vercel.app/api/slack/interactions`
+1. go to [api.slack.com/apps](https://api.slack.com/apps)
+2. click **"Create New App"** → **"From a manifest"**
+3. select your workspace
+4. paste the contents of [`slack-app-manifest.json`](./slack-app-manifest.json) from this repo
+5. click **Create**
+6. click **Install to Workspace** and authorize
 
-### 2. Create Upstash Redis
+### 2. get your credentials
 
-1. Go to [console.upstash.com](https://console.upstash.com)
-2. Create a new Redis database
-3. Copy the `UPSTASH_REDIS_REST_URL` and `UPSTASH_REDIS_REST_TOKEN`
+from your slack app settings page:
+- **Bot Token**: OAuth & Permissions → Bot User OAuth Token (`xoxb-...`)
+- **User Token**: OAuth & Permissions → User OAuth Token (`xoxp-...`)
+- **Signing Secret**: Basic Information → App Credentials → Signing Secret
 
-### 3. Get your Slack User ID
+get your slack user ID:
+1. in slack, click your profile picture → "Profile"
+2. click the `⋮` menu → "Copy member ID"
 
-1. In Slack, click your profile picture
-2. Click "Profile"
-3. Click the three dots menu → "Copy member ID"
+### 3. create upstash redis
 
-### 4. Deploy to Vercel
+1. go to [console.upstash.com](https://console.upstash.com)
+2. create a new redis database (free tier works)
+3. copy the `UPSTASH_REDIS_REST_URL` and `UPSTASH_REDIS_REST_TOKEN`
+
+### 4. deploy to vercel
 
 [![Deploy with Vercel](https://vercel.com/button)](https://vercel.com/new/clone?repository-url=https%3A%2F%2Fgithub.com%2Fvercel-labs%2Fnudge&env=SLACK_BOT_TOKEN,SLACK_USER_TOKEN,SLACK_SIGNING_SECRET,SLACK_USER_ID,UPSTASH_REDIS_REST_URL,UPSTASH_REDIS_REST_TOKEN,CRON_SECRET&envDescription=Slack%20and%20Redis%20credentials%20for%20Nudge)
 
-Set these environment variables:
-
-| Variable | Description |
+| variable | description |
 |----------|-------------|
-| `SLACK_BOT_TOKEN` | Bot token starting with `xoxb-` |
-| `SLACK_USER_TOKEN` | User token starting with `xoxp-` |
-| `SLACK_SIGNING_SECRET` | From Slack app settings |
-| `SLACK_USER_ID` | Your Slack member ID |
-| `UPSTASH_REDIS_REST_URL` | From Upstash console |
-| `UPSTASH_REDIS_REST_TOKEN` | From Upstash console |
-| `CRON_SECRET` | Any random string for cron auth |
-| `AI_GATEWAY_API_KEY` | (Optional) Vercel AI Gateway key |
-| `AI_GATEWAY_URL` | (Optional) AI Gateway URL |
+| `SLACK_BOT_TOKEN` | bot token (`xoxb-...`) |
+| `SLACK_USER_TOKEN` | user token (`xoxp-...`) |
+| `SLACK_SIGNING_SECRET` | from slack app settings |
+| `SLACK_USER_ID` | your slack member ID |
+| `UPSTASH_REDIS_REST_URL` | from upstash console |
+| `UPSTASH_REDIS_REST_TOKEN` | from upstash console |
+| `CRON_SECRET` | any random string (e.g. `nudge_abc123`) |
 
-### 5. Update Slack App URLs
+### 5. update slack app URLs
 
-After deploying, update your Slack app with your Vercel URL:
-- Slash Command: `https://your-app.vercel.app/api/slack/commands`
-- Interactivity: `https://your-app.vercel.app/api/slack/interactions`
+after deploying, go back to your slack app settings and update:
 
-## Usage
+**Slash Commands** → `/followups`:
+```
+https://your-app.vercel.app/api/slack/commands
+```
 
-- Questions you ask are automatically tracked
-- You'll receive DM reminders at 8am PT and 4pm PT
-- Use `/followups` to see all pending items
-- Click "Dismiss" to remove items you no longer need to track
+**Interactivity & Shortcuts** → Request URL:
+```
+https://your-app.vercel.app/api/slack/interactions
+```
 
-## Tech Stack
+## usage
 
-- [Next.js](https://nextjs.org) App Router
+- questions you ask are automatically tracked
+- you'll receive DM reminders at 8am PT and 4pm PT
+- use `/followups` anytime to see pending items
+- click "Dismiss" to remove items you no longer need to track
+
+## tech stack
+
+- [Next.js](https://nextjs.org) app router
 - [Vercel AI SDK](https://sdk.vercel.ai) with AI Gateway
 - [Upstash Redis](https://upstash.com)
 - [Slack Web API](https://api.slack.com)
+
+---
+
+this is v1 — built in a day with [Claude Code](https://claude.ai/code). feedback and contributions welcome!

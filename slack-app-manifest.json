@@ -1,0 +1,49 @@
+{
+  "display_information": {
+    "name": "Nudge",
+    "description": "Reminds you to follow up on unanswered Slack questions",
+    "background_color": "#000000"
+  },
+  "features": {
+    "bot_user": {
+      "display_name": "Nudge",
+      "always_online": true
+    },
+    "slash_commands": [
+      {
+        "command": "/followups",
+        "url": "https://YOUR_VERCEL_URL/api/slack/commands",
+        "description": "See your pending follow-ups",
+        "should_escape": false
+      }
+    ]
+  },
+  "oauth_config": {
+    "scopes": {
+      "user": [
+        "channels:history",
+        "channels:read",
+        "groups:history",
+        "groups:read",
+        "im:history",
+        "im:read",
+        "mpim:history",
+        "mpim:read",
+        "search:read"
+      ],
+      "bot": [
+        "chat:write",
+        "commands"
+      ]
+    }
+  },
+  "settings": {
+    "interactivity": {
+      "is_enabled": true,
+      "request_url": "https://YOUR_VERCEL_URL/api/slack/interactions"
+    },
+    "org_deploy_enabled": false,
+    "socket_mode_enabled": false,
+    "token_rotation_enabled": false
+  }
+}
