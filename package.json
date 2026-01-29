@@ -9,6 +9,11 @@
     "lint": "eslint"
   },
   "dependencies": {
+    "@ai-sdk/gateway": "^3.0.28",
+    "@ai-sdk/openai": "^3.0.21",
+    "@slack/web-api": "^7.13.0",
+    "@upstash/redis": "^1.36.1",
+    "ai": "^6.0.58",
     "next": "16.1.6",
     "react": "19.2.3",
     "react-dom": "19.2.3"
