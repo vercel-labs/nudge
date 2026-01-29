@@ -13,7 +13,7 @@ a personal slack agent that reminds you to follow up on unanswered questions.
 
 click the button below to add Nudge to your Slack workspace:
 
-[![Add to Slack](https://platform.slack-edge.com/img/add_to_slack.png)](https://nudge.vercel.app/api/slack/oauth)
+[![Add to Slack](https://platform.slack-edge.com/img/add_to_slack.png)](https://nudge-lzrcbvdir.labs.vercel.dev/api/slack/oauth)
 
 that's it! your questions will be tracked automatically.
 
