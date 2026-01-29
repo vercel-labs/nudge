@@ -54,7 +54,9 @@ export async function GET(req: NextRequest) {
       const channel = match.channel.id;
       const messageTs = match.ts;
       const text = match.text;
-      const isDM = channel.startsWith("D");
+      // DMs start with D (1:1) or G (group DMs/mpim in some workspaces)
+      // But safest to check: not a public/private channel (C prefix)
+      const isDM = channel.startsWith("D") || channel.startsWith("G");
 
       // Extract thread_ts from permalink since search API doesn't include it directly
       const permalink = (match as { permalink?: string }).permalink || "";
@@ -106,8 +108,63 @@ export async function GET(req: NextRequest) {
               }
             }
           }
+        } else if (isDM) {
+          // DM (1:1 or group): Check conversation flow for responses after the question
+          // This is the primary way people respond in DMs (not threads)
+          const historyResult = await slackUser.conversations.history({
+            channel,
+            oldest: messageTs,
+            limit: 30,
+            inclusive: true,
+          });
+
+          const allMessages = (historyResult.messages || []).reverse();
+          const messagesAfterQuestion = allMessages.slice(1);
+
+          for (const msg of messagesAfterQuestion) {
+            if (msg.user !== TRACKED_USER_ID && msg.text) {
+              const classification = await classifyResponse(text, msg.text);
+              if (classification === "answer") {
+                hasAnswer = true;
+                break;
+              }
+            } else if (msg.user === TRACKED_USER_ID && msg.text) {
+              const classification = await classifyUserMessage(text, msg.text);
+              if (classification === "self-resolved") {
+                hasAnswer = true;
+                break;
+              }
+            }
+          }
+
+          // Also check thread replies if no answer found in conversation flow
+          if (!hasAnswer) {
+            const repliesResult = await slackUser.conversations.replies({
+              channel,
+              ts: messageTs,
+              limit: 50,
+            });
+
+            const replies = (repliesResult.messages || []).slice(1);
+
+            for (const reply of replies) {
+              if (reply.user !== TRACKED_USER_ID && reply.text) {
+                const classification = await classifyResponse(text, reply.text);
+                if (classification === "answer") {
+                  hasAnswer = true;
+                  break;
+                }
+              } else if (reply.user === TRACKED_USER_ID && reply.text) {
+                const classification = await classifyUserMessage(text, reply.text);
+                if (classification === "self-resolved") {
+                  hasAnswer = true;
+                  break;
+                }
+              }
+            }
+          }
         } else {
-          // Message is top-level or a thread parent - check for thread replies to this message
+          // Channel message: Check for thread replies
           const repliesResult = await slackUser.conversations.replies({
             channel,
             ts: messageTs,
@@ -129,35 +186,6 @@ export async function GET(req: NextRequest) {
               if (classification === "self-resolved") {
                 hasAnswer = true;
                 break;
-              }
-            }
-          }
-
-          // For DMs without thread replies, also check conversation flow
-          if (!hasAnswer && isDM && replies.length === 0) {
-            const historyResult = await slackUser.conversations.history({
-              channel,
-              oldest: messageTs,
-              limit: 30,
-              inclusive: true,
-            });
-
-            const allMessages = (historyResult.messages || []).reverse();
-            const messagesAfterQuestion = allMessages.slice(1);
-
-            for (const msg of messagesAfterQuestion) {
-              if (msg.user !== TRACKED_USER_ID && msg.text) {
-                const classification = await classifyResponse(text, msg.text);
-                if (classification === "answer") {
-                  hasAnswer = true;
-                  break;
-                }
-              } else if (msg.user === TRACKED_USER_ID && msg.text) {
-                const classification = await classifyUserMessage(text, msg.text);
-                if (classification === "self-resolved") {
-                  hasAnswer = true;
-                  break;
-                }
               }
             }
           }
