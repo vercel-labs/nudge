@@ -36,6 +36,7 @@
       ],
       "bot": [
         "chat:write",
+        "im:write",
         "commands"
       ]
     }
