@@ -90,13 +90,20 @@ async function pollUserMessages(user: NudgeUser): Promise<{
             }
           }
         } else if (isDM) {
+          // For DMs/group DMs, check messages in a 48-hour window after the question
+          // to catch responses that come in the conversation flow (not threads)
+          const questionTime = parseFloat(messageTs);
+          const windowEnd = questionTime + (48 * 60 * 60); // 48 hours later
+
           const historyResult = await slackUser.conversations.history({
             channel,
             oldest: messageTs,
-            limit: 30,
+            latest: String(windowEnd),
+            limit: 50,
             inclusive: true,
           });
 
+          // Messages come newest-first, reverse to get chronological order
           const allMessages = (historyResult.messages || []).reverse();
           const messagesAfterQuestion = allMessages.slice(1);
 
