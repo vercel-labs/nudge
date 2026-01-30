@@ -1,14 +1,4 @@
 {
-  "rewrites": [
-    {
-      "source": "/api/slack/:path*",
-      "destination": "/api/slack/:path*?x-vercel-protection-bypass=m3lV4e57FcXXAXULDzasrmTzuUCshsxw"
-    },
-    {
-      "source": "/api/cron/:path*",
-      "destination": "/api/cron/:path*?x-vercel-protection-bypass=m3lV4e57FcXXAXULDzasrmTzuUCshsxw"
-    }
-  ],
   "crons": [
     {
       "path": "/api/cron/poll-messages",
