@@ -112,9 +112,14 @@ async function pollUserMessages(user: NudgeUser): Promise<{
           const allMessages = (historyResult.messages || []).reverse();
           const messagesAfterQuestion = allMessages.slice(1);
 
+          console.log(`[DM Check] Question: "${text.slice(0, 50)}..." in ${channel}`);
+          console.log(`[DM Check] Found ${messagesAfterQuestion.length} messages after question`);
+
           for (const msg of messagesAfterQuestion) {
             if (msg.user !== user.slackUserId && msg.text) {
+              console.log(`[DM Check] Checking response: "${msg.text.slice(0, 50)}..."`);
               const classification = await classifyResponse(text, msg.text);
+              console.log(`[DM Check] Classification: ${classification}`);
               if (classification === "answer") {
                 hasAnswer = true;
                 break;
