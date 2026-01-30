@@ -1,8 +1,22 @@
 import { NextRequest, NextResponse } from "next/server";
 import { verifySlackRequest, getThreadLink, escapeSlackText } from "@/lib/slack";
 import { getUserFollowUps } from "@/lib/redis";
+import { getUser } from "@/lib/db";
+import { pollUserMessages } from "@/lib/poll";
 
 async function sendFollowUpsResponse(responseUrl: string, userId: string) {
+  // First, eagerly poll for new questions so results are always fresh
+  const user = await getUser(userId);
+  if (user) {
+    try {
+      await pollUserMessages(user);
+    } catch (err) {
+      console.error("Error polling messages on-demand:", err);
+      // Continue anyway - we'll show whatever is cached
+    }
+  }
+
+  // Now fetch the (freshly updated) followups
   const followUps = await getUserFollowUps(userId);
 
   if (followUps.length === 0) {
@@ -85,8 +99,11 @@ export async function POST(req: NextRequest) {
     // Respond async to avoid Slack timeout/retries
     sendFollowUpsResponse(responseUrl, userId).catch(console.error);
 
-    // Acknowledge immediately
-    return new NextResponse(null, { status: 200 });
+    // Acknowledge immediately with a loading message
+    return NextResponse.json({
+      response_type: "ephemeral",
+      text: "Checking your messages for unanswered questions...",
+    });
   }
 
   return NextResponse.json({ ok: true });
