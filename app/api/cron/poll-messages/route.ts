@@ -56,11 +56,6 @@ async function pollUserMessages(user: NudgeUser): Promise<{
 
       if (!isLikelyQuestion(text)) continue;
 
-      // Skip questions less than 5 minutes old - give people time to respond
-      const questionAgeMs = Date.now() - parseFloat(messageTs) * 1000;
-      const fiveMinutesMs = 5 * 60 * 1000;
-      if (questionAgeMs < fiveMinutesMs) continue;
-
       stats.questionsFound++;
 
       try {
