@@ -20,15 +20,17 @@ that's it! your questions will be tracked automatically.
 ## usage
 
 - questions you ask are automatically tracked
-- you'll receive DM reminders at 8am PT and 4pm PT
-- use `/followups` anytime to see pending items
-- click "Dismiss" to remove items you no longer need to track
+- you'll receive DM reminders with your pending follow-ups
+- use `/nudge` to configure your reminder schedule:
+  - `/nudge 9am` - once daily at 9am
+  - `/nudge 9am 5pm` - twice daily
+  - `/nudge off` - disable reminders
 
 ## features
 
 - detects questions in channels, DMs, and threads
 - understands conversation context (thread replies, DM flow)
-- `/followups` command to see pending items with dismiss buttons
+- customizable reminder schedule via `/nudge`
 - AI-powered classification using Vercel AI Gateway
 
 ## tech stack

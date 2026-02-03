@@ -23,6 +23,8 @@ Answer examples:
 - Agreement with a plan: "agree", "sounds good", "will do"
 - Closure responses: "thanks for...", "perfect", "got it, I'll..."
 - Any response that indicates the conversation can move forward
+- Links/URLs (sharing a resource IS a valid answer)
+- Messages containing hyperlinks to docs, files, or websites
 
 If the response contains acknowledgment WITH a next action or agreement, classify as "answer".
 Only classify as "non-committal" if the person is purely deferring without substance.

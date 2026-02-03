@@ -11,9 +11,10 @@
     },
     "slash_commands": [
       {
-        "command": "/followups",
+        "command": "/nudge",
         "url": "https://nudge.labs.vercel.dev/api/slack/commands",
-        "description": "See your pending follow-ups",
+        "description": "Configure your reminder schedule",
+        "usage_hint": "[9am] [5pm] or [off]",
         "should_escape": false
       }
     ]

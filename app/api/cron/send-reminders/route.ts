@@ -15,9 +15,18 @@ export async function GET(req: NextRequest) {
     return NextResponse.json({ ok: true, message: "No users registered" });
   }
 
+  const currentHourUTC = new Date().getUTCHours();
   const results = [];
 
   for (const user of users) {
+    // Check if current hour matches user's schedule
+    const reminderHours = user.reminderHours ?? [16, 0]; // Default: 8am PT (16 UTC) and 4pm PT (0 UTC)
+
+    // Skip if reminders are disabled or not scheduled for this hour
+    if (reminderHours.length === 0 || !reminderHours.includes(currentHourUTC)) {
+      continue;
+    }
+
     const followUps = await getUserFollowUps(user.slackUserId);
 
     if (followUps.length === 0) {

@@ -6,6 +6,9 @@ export interface NudgeUser {
   botToken: string;
   userToken: string;
   installedAt: number;
+  // Schedule preferences (hours in UTC)
+  reminderHours?: number[];
+  timezone?: string;
 }
 
 const USERS_KEY = "nudge:users";
@@ -37,4 +40,15 @@ export async function removeUser(slackUserId: string): Promise<void> {
   const key = `${USER_PREFIX}${slackUserId}`;
   await redis.del(key);
   await redis.srem(USERS_KEY, slackUserId);
+}
+
+export async function updateUser(
+  slackUserId: string,
+  updates: Partial<NudgeUser>
+): Promise<void> {
+  const existing = await getUser(slackUserId);
+  if (!existing) return;
+
+  const key = `${USER_PREFIX}${slackUserId}`;
+  await redis.set(key, { ...existing, ...updates });
 }
