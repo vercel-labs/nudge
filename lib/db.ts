@@ -6,8 +6,9 @@ export interface NudgeUser {
   botToken: string;
   userToken: string;
   installedAt: number;
-  // Schedule preferences (hours in UTC)
-  reminderHours?: number[];
+  // Schedule preferences
+  reminderHours?: number[];      // Specific hours in UTC (e.g., [16, 0] for 8am/4pm PT)
+  reminderInterval?: number;     // Interval in hours (e.g., 1 = hourly, 2 = every 2 hours)
   timezone?: string;
 }
 

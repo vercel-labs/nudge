@@ -39,6 +39,25 @@ function formatUTCHourToLocal(utcHour: number, timezone: string): string {
   return `${localHour}${isPM ? "pm" : "am"}`;
 }
 
+function formatSchedule(user: { reminderHours?: number[]; reminderInterval?: number; timezone?: string }): string {
+  const timezone = user.timezone || "PT";
+
+  if (user.reminderInterval) {
+    if (user.reminderInterval === 1) {
+      return "every hour";
+    }
+    return `every ${user.reminderInterval} hours`;
+  }
+
+  const hours = user.reminderHours || [16, 0];
+  if (hours.length === 0) {
+    return "disabled";
+  }
+
+  const times = hours.map(h => formatUTCHourToLocal(h, timezone)).join(" and ");
+  return `${times} (${timezone})`;
+}
+
 async function handleNudgeCommand(responseUrl: string, userId: string, text: string) {
   const user = await getUser(userId);
   if (!user) {
@@ -58,8 +77,7 @@ async function handleNudgeCommand(responseUrl: string, userId: string, text: str
 
   // Show current settings
   if (!args || args === "settings" || args === "status") {
-    const currentHours = user.reminderHours || [16, 0]; // Default: 8am PT, 4pm PT
-    const times = currentHours.map(h => formatUTCHourToLocal(h, timezone)).join(" and ");
+    const schedule = formatSchedule(user);
 
     await fetch(responseUrl, {
       method: "POST",
@@ -71,7 +89,7 @@ async function handleNudgeCommand(responseUrl: string, userId: string, text: str
             type: "section",
             text: {
               type: "mrkdwn",
-              text: `*Your Nudge settings:*\n\n📅 Reminders: *${times}* (${timezone})\n\nTo change your schedule:\n• \`/nudge 9am\` - once daily\n• \`/nudge 9am 5pm\` - twice daily\n• \`/nudge off\` - disable reminders`,
+              text: `*Your Nudge settings:*\n\n📅 Reminders: *${schedule}*\n\nTo change your schedule:\n• \`/nudge hourly\` - every hour\n• \`/nudge every 2 hours\` - every 2 hours\n• \`/nudge 9am\` - once daily\n• \`/nudge 9am 5pm\` - twice daily\n• \`/nudge off\` - disable reminders`,
             },
           },
         ],
@@ -82,7 +100,7 @@ async function handleNudgeCommand(responseUrl: string, userId: string, text: str
 
   // Turn off reminders
   if (args === "off" || args === "disable" || args === "stop") {
-    await updateUser(userId, { reminderHours: [] });
+    await updateUser(userId, { reminderHours: [], reminderInterval: undefined });
     await fetch(responseUrl, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
@@ -94,7 +112,57 @@ async function handleNudgeCommand(responseUrl: string, userId: string, text: str
     return;
   }
 
-  // Parse schedule times
+  // Check for "hourly" or "every hour"
+  if (args === "hourly" || args === "every hour") {
+    await updateUser(userId, { reminderInterval: 1, reminderHours: undefined, timezone });
+    await fetch(responseUrl, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        response_type: "ephemeral",
+        text: "✓ Reminders set for *every hour*",
+      }),
+    });
+    return;
+  }
+
+  // Check for "every X hours" pattern
+  const everyMatch = args.match(/^every\s+(\d+)\s*h(?:ours?)?$/);
+  if (everyMatch) {
+    const interval = parseInt(everyMatch[1]);
+    if (interval >= 1 && interval <= 24) {
+      await updateUser(userId, { reminderInterval: interval, reminderHours: undefined, timezone });
+      await fetch(responseUrl, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          response_type: "ephemeral",
+          text: `✓ Reminders set for *every ${interval} hour${interval > 1 ? "s" : ""}*`,
+        }),
+      });
+      return;
+    }
+  }
+
+  // Check for shorthand like "2h", "4h"
+  const shorthandMatch = args.match(/^(\d+)h$/);
+  if (shorthandMatch) {
+    const interval = parseInt(shorthandMatch[1]);
+    if (interval >= 1 && interval <= 24) {
+      await updateUser(userId, { reminderInterval: interval, reminderHours: undefined, timezone });
+      await fetch(responseUrl, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          response_type: "ephemeral",
+          text: `✓ Reminders set for *every ${interval} hour${interval > 1 ? "s" : ""}*`,
+        }),
+      });
+      return;
+    }
+  }
+
+  // Parse schedule times (9am, 9am 5pm, etc.)
   const timeParts = args.split(/[\s,]+/).filter(Boolean);
   const utcHours: number[] = [];
 
@@ -111,13 +179,13 @@ async function handleNudgeCommand(responseUrl: string, userId: string, text: str
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
         response_type: "ephemeral",
-        text: "Couldn't understand that schedule. Try:\n• `/nudge 9am` - once daily\n• `/nudge 9am 5pm` - twice daily\n• `/nudge off` - disable",
+        text: "Couldn't understand that schedule. Try:\n• `/nudge hourly`\n• `/nudge every 2 hours` or `/nudge 2h`\n• `/nudge 9am` or `/nudge 9am 5pm`\n• `/nudge off`",
       }),
     });
     return;
   }
 
-  await updateUser(userId, { reminderHours: utcHours, timezone });
+  await updateUser(userId, { reminderHours: utcHours, reminderInterval: undefined, timezone });
   const times = utcHours.map(h => formatUTCHourToLocal(h, timezone)).join(" and ");
 
   await fetch(responseUrl, {

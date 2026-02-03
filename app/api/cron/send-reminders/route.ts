@@ -20,10 +20,18 @@ export async function GET(req: NextRequest) {
 
   for (const user of users) {
     // Check if current hour matches user's schedule
-    const reminderHours = user.reminderHours ?? [16, 0]; // Default: 8am PT (16 UTC) and 4pm PT (0 UTC)
+    let shouldSend = false;
 
-    // Skip if reminders are disabled or not scheduled for this hour
-    if (reminderHours.length === 0 || !reminderHours.includes(currentHourUTC)) {
+    if (user.reminderInterval) {
+      // Interval-based: send if current hour is divisible by interval
+      shouldSend = currentHourUTC % user.reminderInterval === 0;
+    } else {
+      // Specific hours or default (8am PT = 16 UTC, 4pm PT = 0 UTC)
+      const reminderHours = user.reminderHours ?? [16, 0];
+      shouldSend = reminderHours.length > 0 && reminderHours.includes(currentHourUTC);
+    }
+
+    if (!shouldSend) {
       continue;
     }
 
@@ -69,7 +77,7 @@ export async function GET(req: NextRequest) {
         elements: [
           {
             type: "mrkdwn",
-            text: "Use `/followups` to see full list with dismiss buttons",
+            text: "Use `/nudge` to adjust your reminder schedule",
           },
         ],
       },
