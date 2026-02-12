@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { createSlackClient, getThreadLink, escapeSlackText } from "@/lib/slack";
+import { createSlackClient, getThreadLink, escapeSlackText, getConversationLabel } from "@/lib/slack";
 import { getUserFollowUps, updateFollowUp } from "@/lib/redis";
 import { getAllUsers } from "@/lib/db";
 import { summarizeQuestion } from "@/lib/ai";
@@ -69,15 +69,19 @@ export async function GET(req: NextRequest) {
       },
     ];
 
-    // Generate summaries for follow-ups that don't have one cached
+    // Generate summaries and resolve conversation labels
+    const slackUser = createSlackClient(user.userToken);
     await Promise.all(
       displayedFollowUps.map(async (f) => {
-        if (!f.summary) {
+        if (!f.summary || !f.summary.includes(" - ")) {
           try {
-            f.summary = await summarizeQuestion(f.originalMessage);
+            const [topic, label] = await Promise.all([
+              summarizeQuestion(f.originalMessage),
+              getConversationLabel(slackUser, f.channel),
+            ]);
+            f.summary = `${label} - ${topic}`;
             await updateFollowUp(f.userId, f.channel, f.threadTs, { summary: f.summary });
           } catch {
-            // Fall back to truncation if summarization fails
             f.summary = f.originalMessage.length > 80
               ? f.originalMessage.slice(0, 80) + "..."
               : f.originalMessage;

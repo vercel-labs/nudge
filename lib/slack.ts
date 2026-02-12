@@ -42,6 +42,36 @@ export function getThreadLink(channel: string, messageTs: string, parentThreadTs
   return `https://slack.com/archives/${channel}/p${linkTs}`;
 }
 
+// Resolve a channel ID to a human-readable label like "#general" or "DM with @name"
+export async function getConversationLabel(client: WebClient, channel: string): Promise<string> {
+  try {
+    const info = await client.conversations.info({ channel });
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const ch = info.channel as any;
+
+    if (ch?.is_im) {
+      // Direct message — resolve the other user's display name
+      try {
+        const userInfo = await client.users.info({ user: ch.user });
+        const name = userInfo.user?.profile?.display_name || userInfo.user?.real_name || userInfo.user?.name || "someone";
+        return `DM with @${name}`;
+      } catch {
+        return "DM";
+      }
+    }
+
+    if (ch?.is_mpim) {
+      return ch.name_normalized || ch.name || "group DM";
+    }
+
+    // Regular channel
+    const name = ch?.name_normalized || ch?.name;
+    return name ? `#${name}` : "channel";
+  } catch {
+    return "conversation";
+  }
+}
+
 export function escapeSlackText(text: string): string {
   // Escape special characters that break Slack mrkdwn links
   return text

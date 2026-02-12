@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { waitUntil } from "@vercel/functions";
-import { verifySlackRequest, getThreadLink, escapeSlackText } from "@/lib/slack";
+import { verifySlackRequest, getThreadLink, escapeSlackText, getConversationLabel, createSlackClient } from "@/lib/slack";
 import { getUser, updateUser } from "@/lib/db";
 import { getUserFollowUps, updateFollowUp } from "@/lib/redis";
 import { summarizeQuestion } from "@/lib/ai";
@@ -132,12 +132,17 @@ async function handleNudgeCommand(responseUrl: string, userId: string, text: str
       },
     ];
 
-    // Generate summaries for follow-ups that don't have one cached
+    // Generate summaries and resolve conversation labels
+    const slackUser = createSlackClient(user.userToken);
     await Promise.all(
       followUps.map(async (f) => {
-        if (!f.summary) {
+        if (!f.summary || !f.summary.includes(" - ")) {
           try {
-            f.summary = await summarizeQuestion(f.originalMessage);
+            const [topic, label] = await Promise.all([
+              summarizeQuestion(f.originalMessage),
+              getConversationLabel(slackUser, f.channel),
+            ]);
+            f.summary = `${label} - ${topic}`;
             await updateFollowUp(f.userId, f.channel, f.threadTs, { summary: f.summary });
           } catch {
             f.summary = f.originalMessage.length > 80
