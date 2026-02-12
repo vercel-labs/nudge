@@ -2,7 +2,8 @@ import { NextRequest, NextResponse } from "next/server";
 import { waitUntil } from "@vercel/functions";
 import { verifySlackRequest, getThreadLink, escapeSlackText } from "@/lib/slack";
 import { getUser, updateUser } from "@/lib/db";
-import { getUserFollowUps } from "@/lib/redis";
+import { getUserFollowUps, updateFollowUp } from "@/lib/redis";
+import { summarizeQuestion } from "@/lib/ai";
 
 // Parse time like "9am", "2pm", "14:00" to UTC hour
 function parseTimeToUTC(timeStr: string, timezone: string): number | null {
@@ -131,14 +132,26 @@ async function handleNudgeCommand(responseUrl: string, userId: string, text: str
       },
     ];
 
+    // Generate summaries for follow-ups that don't have one cached
+    await Promise.all(
+      followUps.map(async (f) => {
+        if (!f.summary) {
+          try {
+            f.summary = await summarizeQuestion(f.originalMessage);
+            await updateFollowUp(f.userId, f.channel, f.threadTs, { summary: f.summary });
+          } catch {
+            f.summary = f.originalMessage.length > 80
+              ? f.originalMessage.slice(0, 80) + "..."
+              : f.originalMessage;
+          }
+        }
+      })
+    );
+
     followUps.forEach((f, i) => {
       const link = getThreadLink(f.channel, f.threadTs, f.parentThreadTs);
       const hoursAgo = Math.round((Date.now() - f.createdAt) / (1000 * 60 * 60));
-      const preview = escapeSlackText(
-        f.originalMessage.length > 40
-          ? f.originalMessage.slice(0, 40) + "..."
-          : f.originalMessage
-      );
+      const preview = escapeSlackText(f.summary || f.originalMessage);
 
       blocks.push({
         type: "section",
