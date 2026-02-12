@@ -133,7 +133,7 @@ async function handleNudgeCommand(responseUrl: string, userId: string, text: str
     ];
 
     // Generate summaries and resolve conversation labels
-    const SUMMARY_VERSION = 2;
+    const SUMMARY_VERSION = 3;
     const slackUser = createSlackClient(user.userToken);
     await Promise.all(
       followUps.map(async (f) => {

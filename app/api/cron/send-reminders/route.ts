@@ -70,7 +70,7 @@ export async function GET(req: NextRequest) {
     ];
 
     // Generate summaries and resolve conversation labels
-    const SUMMARY_VERSION = 2;
+    const SUMMARY_VERSION = 3;
     const slackUser = createSlackClient(user.userToken);
     await Promise.all(
       displayedFollowUps.map(async (f) => {

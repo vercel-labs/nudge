@@ -33,7 +33,8 @@
         "im:read",
         "mpim:history",
         "mpim:read",
-        "search:read"
+        "search:read",
+        "users:read"
       ],
       "bot": [
         "chat:write",
