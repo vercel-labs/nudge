@@ -4,6 +4,26 @@ import { gateway } from "@ai-sdk/gateway";
 // Default model - uses Vercel AI Gateway format: provider/model
 const MODEL = process.env.AI_MODEL || "anthropic/claude-haiku-4.5";
 
+export async function summarizeQuestion(originalMessage: string): Promise<string> {
+  const { text } = await generateText({
+    model: gateway.languageModel(MODEL),
+    prompt: `Summarize this Slack message into a short, scannable reminder of what was asked. The summary should make it immediately clear what the question is about without needing to click into the conversation.
+
+Rules:
+- Write 10-20 words max
+- Focus on the core question being asked
+- Use plain language, no quotes or formatting
+- Start with the topic/subject, not "Asked about..." or "You asked..."
+- If there are multiple questions, focus on the main one
+
+Message: "${originalMessage}"
+
+Summary:`,
+  });
+
+  return text.trim();
+}
+
 export type ResponseClassification = "answer" | "non-committal";
 export type UserMessageClassification = "follow-up" | "self-resolved";
 

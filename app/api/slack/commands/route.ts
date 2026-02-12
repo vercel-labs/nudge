@@ -1,6 +1,8 @@
 import { NextRequest, NextResponse } from "next/server";
-import { verifySlackRequest } from "@/lib/slack";
+import { waitUntil } from "@vercel/functions";
+import { verifySlackRequest, getThreadLink, escapeSlackText } from "@/lib/slack";
 import { getUser, updateUser } from "@/lib/db";
+import { getUserFollowUps } from "@/lib/redis";
 
 // Parse time like "9am", "2pm", "14:00" to UTC hour
 function parseTimeToUTC(timeStr: string, timezone: string): number | null {
@@ -89,10 +91,98 @@ async function handleNudgeCommand(responseUrl: string, userId: string, text: str
             type: "section",
             text: {
               type: "mrkdwn",
-              text: `*Your Nudge settings:*\n\n📅 Reminders: *${schedule}*\n\nTo change your schedule:\n• \`/nudge hourly\` - every hour\n• \`/nudge every 2 hours\` - every 2 hours\n• \`/nudge 9am\` - once daily\n• \`/nudge 9am 5pm\` - twice daily\n• \`/nudge off\` - disable reminders`,
+              text: `*Your Nudge settings:*\n\n📅 Reminders: *${schedule}*\n\nCommands:\n• \`/nudge list\` - show all pending follow-ups\n• \`/nudge hourly\` - remind every hour\n• \`/nudge 9am 5pm\` - remind at specific times\n• \`/nudge off\` - disable reminders`,
             },
           },
         ],
+      }),
+    });
+    return;
+  }
+
+  // Show all follow-ups with dismiss buttons
+  if (args === "list" || args === "all" || args === "show") {
+    const followUps = await getUserFollowUps(userId);
+
+    if (followUps.length === 0) {
+      await fetch(responseUrl, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          response_type: "ephemeral",
+          text: "🎉 *All caught up!* No pending follow-ups.",
+        }),
+      });
+      return;
+    }
+
+    // Sort by createdAt (oldest first)
+    followUps.sort((a, b) => a.createdAt - b.createdAt);
+
+    // Build blocks with dismiss buttons - show ALL follow-ups
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const blocks: any[] = [
+      {
+        type: "section",
+        text: {
+          type: "mrkdwn",
+          text: `*You have ${followUps.length} pending follow-up${followUps.length > 1 ? "s" : ""}:*`,
+        },
+      },
+    ];
+
+    followUps.forEach((f, i) => {
+      const link = getThreadLink(f.channel, f.threadTs, f.parentThreadTs);
+      const hoursAgo = Math.round((Date.now() - f.createdAt) / (1000 * 60 * 60));
+      const preview = escapeSlackText(
+        f.originalMessage.length > 40
+          ? f.originalMessage.slice(0, 40) + "..."
+          : f.originalMessage
+      );
+
+      blocks.push({
+        type: "section",
+        text: {
+          type: "mrkdwn",
+          text: `${i + 1}. <${link}|${preview}> _(${hoursAgo}h ago)_`,
+        },
+        accessory: {
+          type: "button",
+          text: {
+            type: "plain_text",
+            text: "Dismiss",
+            emoji: true,
+          },
+          action_id: `dismiss_followup_${i}`,
+          value: JSON.stringify({
+            userId: userId,
+            channel: f.channel,
+            threadTs: f.threadTs,
+          }),
+        },
+      });
+    });
+
+    // Slack has a limit of 50 blocks, so truncate if needed
+    if (blocks.length > 49) {
+      blocks.length = 49;
+      blocks.push({
+        type: "context",
+        elements: [
+          {
+            type: "mrkdwn",
+            text: "_Showing first 48 follow-ups_",
+          },
+        ],
+      });
+    }
+
+    await fetch(responseUrl, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        response_type: "ephemeral",
+        blocks,
       }),
     });
     return;
@@ -214,7 +304,7 @@ export async function POST(req: NextRequest) {
   const text = params.get("text") || "";
 
   if (command === "/nudge" && userId && responseUrl) {
-    handleNudgeCommand(responseUrl, userId, text).catch(console.error);
+    waitUntil(handleNudgeCommand(responseUrl, userId, text));
     return new NextResponse(null, { status: 200 });
   }
 

@@ -29,9 +29,10 @@ export async function GET(req: NextRequest) {
       messagesSearched: acc.messagesSearched + r.messagesSearched,
       questionsFound: acc.questionsFound + r.questionsFound,
       newTracked: acc.newTracked + r.newTracked,
+      resolved: acc.resolved + r.resolved,
       errors: [...acc.errors, ...r.errors],
     }),
-    { messagesSearched: 0, questionsFound: 0, newTracked: 0, errors: [] as string[] }
+    { messagesSearched: 0, questionsFound: 0, newTracked: 0, resolved: 0, errors: [] as string[] }
   );
 
   return NextResponse.json({

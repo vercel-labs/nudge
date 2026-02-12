@@ -1,5 +1,5 @@
 import { createSlackClient } from "@/lib/slack";
-import { addFollowUp, isTracked } from "@/lib/redis";
+import { addFollowUp, isTracked, getUserFollowUps, removeFollowUp, FollowUp } from "@/lib/redis";
 import { classifyResponse, classifyUserMessage } from "@/lib/ai";
 import { NudgeUser } from "@/lib/db";
 
@@ -16,7 +16,130 @@ export interface PollStats {
   messagesSearched: number;
   questionsFound: number;
   newTracked: number;
+  resolved: number;
   errors: string[];
+}
+
+// Check if a channel is a DM or MPIM (group DM)
+async function isDMOrMPIM(slackUser: ReturnType<typeof createSlackClient>, channel: string): Promise<boolean> {
+  // D = direct message, G = legacy group DM
+  if (channel.startsWith("D") || channel.startsWith("G")) return true;
+
+  // C-prefixed channels might be MPIMs - check via API
+  if (channel.startsWith("C")) {
+    try {
+      const info = await slackUser.conversations.info({ channel });
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      return (info.channel as any)?.is_mpim === true || (info.channel as any)?.is_im === true;
+    } catch {
+      return false;
+    }
+  }
+
+  return false;
+}
+
+// Re-check existing follow-ups to see if they've been answered
+async function recheckFollowUp(
+  user: NudgeUser,
+  followUp: FollowUp
+): Promise<boolean> {
+  const slackUser = createSlackClient(user.userToken);
+  const { channel, threadTs, parentThreadTs, originalMessage } = followUp;
+  const isDM = await isDMOrMPIM(slackUser, channel);
+  const isInsideThread = parentThreadTs && parentThreadTs !== threadTs;
+
+  try {
+    if (isInsideThread) {
+      const repliesResult = await slackUser.conversations.replies({
+        channel,
+        ts: parentThreadTs,
+        limit: 100,
+      });
+
+      const allReplies = repliesResult.messages || [];
+      const messagesAfter = allReplies
+        .filter((m: { ts?: string }) => m.ts && parseFloat(m.ts) > parseFloat(threadTs))
+        .sort((a: { ts?: string }, b: { ts?: string }) => parseFloat(a.ts!) - parseFloat(b.ts!));
+
+      for (const msg of messagesAfter) {
+        if (msg.user !== user.slackUserId && msg.text) {
+          const classification = await classifyResponse(originalMessage, msg.text);
+          if (classification === "answer") return true;
+        } else if (msg.user === user.slackUserId && msg.text) {
+          const classification = await classifyUserMessage(originalMessage, msg.text);
+          if (classification === "self-resolved") return true;
+        }
+      }
+    } else if (isDM) {
+      // For DMs and group DMs: simple logic - if anyone else responded after the question, it's answered
+      const historyResult = await slackUser.conversations.history({
+        channel,
+        oldest: threadTs,
+        limit: 50,
+        inclusive: true,
+      });
+
+      const allMessages = (historyResult.messages || []).reverse();
+      const messagesAfterQuestion = allMessages.slice(1);
+
+      // Simple check: did anyone else respond?
+      for (const msg of messagesAfterQuestion) {
+        if (msg.user !== user.slackUserId) {
+          // Someone else responded - consider it answered
+          return true;
+        }
+      }
+    } else {
+      // Channel message - check thread replies first
+      const repliesResult = await slackUser.conversations.replies({
+        channel,
+        ts: threadTs,
+        limit: 50,
+      });
+
+      const replies = (repliesResult.messages || []).slice(1);
+
+      for (const reply of replies) {
+        if (reply.user !== user.slackUserId && reply.text) {
+          const classification = await classifyResponse(originalMessage, reply.text);
+          if (classification === "answer") return true;
+        } else if (reply.user === user.slackUserId && reply.text) {
+          const classification = await classifyUserMessage(originalMessage, reply.text);
+          if (classification === "self-resolved") return true;
+        }
+      }
+
+      // Also check channel conversation for non-threaded responses
+      const historyResult = await slackUser.conversations.history({
+        channel,
+        oldest: threadTs,
+        limit: 20,
+        inclusive: true,
+      });
+
+      const channelMessages = (historyResult.messages || []).reverse();
+      const messagesAfterQuestion = channelMessages.slice(1);
+
+      for (const msg of messagesAfterQuestion) {
+        // Skip messages that are thread replies (they have thread_ts different from ts)
+        if (msg.thread_ts && msg.thread_ts !== msg.ts) continue;
+
+        if (msg.user !== user.slackUserId && msg.text) {
+          const classification = await classifyResponse(originalMessage, msg.text);
+          if (classification === "answer") return true;
+        } else if (msg.user === user.slackUserId && msg.text) {
+          const classification = await classifyUserMessage(originalMessage, msg.text);
+          if (classification === "self-resolved") return true;
+        }
+      }
+    }
+  } catch {
+    // If we can't check, assume not answered
+    return false;
+  }
+
+  return false;
 }
 
 export async function pollUserMessages(user: NudgeUser): Promise<PollStats> {
@@ -24,10 +147,29 @@ export async function pollUserMessages(user: NudgeUser): Promise<PollStats> {
     messagesSearched: 0,
     questionsFound: 0,
     newTracked: 0,
+    resolved: 0,
     errors: [],
   };
 
   const slackUser = createSlackClient(user.userToken);
+
+  // First, re-check existing follow-ups for late answers
+  try {
+    const existingFollowUps = await getUserFollowUps(user.slackUserId);
+    for (const followUp of existingFollowUps) {
+      try {
+        const isAnswered = await recheckFollowUp(user, followUp);
+        if (isAnswered) {
+          await removeFollowUp(user.slackUserId, followUp.channel, followUp.threadTs);
+          stats.resolved++;
+        }
+      } catch (err) {
+        stats.errors.push(`Recheck ${followUp.threadTs}: ${err}`);
+      }
+    }
+  } catch (err) {
+    stats.errors.push(`Recheck phase: ${err}`);
+  }
 
   try {
     const searchResult = await slackUser.search.messages({
@@ -46,7 +188,7 @@ export async function pollUserMessages(user: NudgeUser): Promise<PollStats> {
       const channel = match.channel.id;
       const messageTs = match.ts;
       const text = match.text;
-      const isDM = channel.startsWith("D") || channel.startsWith("G");
+      const isDM = await isDMOrMPIM(slackUser, channel);
 
       const permalink = (match as { permalink?: string }).permalink || "";
       const threadTsMatch = permalink.match(/thread_ts=([0-9.]+)/);
@@ -91,15 +233,10 @@ export async function pollUserMessages(user: NudgeUser): Promise<PollStats> {
             }
           }
         } else if (isDM) {
-          // For DMs/group DMs, check messages in a 48-hour window after the question
-          // to catch responses that come in the conversation flow (not threads)
-          const questionTime = parseFloat(messageTs);
-          const windowEnd = questionTime + (48 * 60 * 60); // 48 hours later
-
+          // For DMs/group DMs: simple logic - if anyone else responded after the question, it's answered
           const historyResult = await slackUser.conversations.history({
             channel,
             oldest: messageTs,
-            latest: String(windowEnd),
             limit: 50,
             inclusive: true,
           });
@@ -108,45 +245,12 @@ export async function pollUserMessages(user: NudgeUser): Promise<PollStats> {
           const allMessages = (historyResult.messages || []).reverse();
           const messagesAfterQuestion = allMessages.slice(1);
 
+          // Simple check: did anyone else respond?
           for (const msg of messagesAfterQuestion) {
-            if (msg.user !== user.slackUserId && msg.text) {
-              const classification = await classifyResponse(text, msg.text);
-              if (classification === "answer") {
-                hasAnswer = true;
-                break;
-              }
-            } else if (msg.user === user.slackUserId && msg.text) {
-              const classification = await classifyUserMessage(text, msg.text);
-              if (classification === "self-resolved") {
-                hasAnswer = true;
-                break;
-              }
-            }
-          }
-
-          if (!hasAnswer) {
-            const repliesResult = await slackUser.conversations.replies({
-              channel,
-              ts: messageTs,
-              limit: 50,
-            });
-
-            const replies = (repliesResult.messages || []).slice(1);
-
-            for (const reply of replies) {
-              if (reply.user !== user.slackUserId && reply.text) {
-                const classification = await classifyResponse(text, reply.text);
-                if (classification === "answer") {
-                  hasAnswer = true;
-                  break;
-                }
-              } else if (reply.user === user.slackUserId && reply.text) {
-                const classification = await classifyUserMessage(text, reply.text);
-                if (classification === "self-resolved") {
-                  hasAnswer = true;
-                  break;
-                }
-              }
+            if (msg.user !== user.slackUserId) {
+              // Someone else responded - consider it answered
+              hasAnswer = true;
+              break;
             }
           }
         } else {

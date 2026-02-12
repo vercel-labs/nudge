@@ -11,6 +11,7 @@ export interface FollowUp {
   threadTs: string;            // The message timestamp (unique identifier)
   parentThreadTs?: string;     // Parent thread ts (if message is inside a thread)
   originalMessage: string;
+  summary?: string;
   createdAt: number;
   lastRemindedAt: number | null;
   lastActivityAt: number;
