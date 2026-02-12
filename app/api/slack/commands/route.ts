@@ -133,17 +133,22 @@ async function handleNudgeCommand(responseUrl: string, userId: string, text: str
     ];
 
     // Generate summaries and resolve conversation labels
+    const SUMMARY_VERSION = 2;
     const slackUser = createSlackClient(user.userToken);
     await Promise.all(
       followUps.map(async (f) => {
-        if (!f.summary || !f.summary.includes(" - ")) {
+        if (!f.summary || f.summaryVersion !== SUMMARY_VERSION) {
           try {
             const [topic, label] = await Promise.all([
               summarizeQuestion(f.originalMessage),
               getConversationLabel(slackUser, f.channel),
             ]);
             f.summary = `${label} - ${topic}`;
-            await updateFollowUp(f.userId, f.channel, f.threadTs, { summary: f.summary });
+            f.summaryVersion = SUMMARY_VERSION;
+            await updateFollowUp(f.userId, f.channel, f.threadTs, {
+              summary: f.summary,
+              summaryVersion: SUMMARY_VERSION,
+            });
           } catch {
             f.summary = f.originalMessage.length > 80
               ? f.originalMessage.slice(0, 80) + "..."

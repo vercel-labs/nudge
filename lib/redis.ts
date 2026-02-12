@@ -12,6 +12,7 @@ export interface FollowUp {
   parentThreadTs?: string;     // Parent thread ts (if message is inside a thread)
   originalMessage: string;
   summary?: string;
+  summaryVersion?: number;
   createdAt: number;
   lastRemindedAt: number | null;
   lastActivityAt: number;

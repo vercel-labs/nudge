@@ -7,21 +7,25 @@ const MODEL = process.env.AI_MODEL || "anthropic/claude-haiku-4.5";
 export async function summarizeQuestion(originalMessage: string): Promise<string> {
   const { text } = await generateText({
     model: gateway.languageModel(MODEL),
-    prompt: `Extract the core topic of this Slack message as a very short label (2-5 words). This will be shown alongside the channel/DM name so the user can quickly identify which conversation this is about.
+    prompt: `Extract the topic of this Slack message in 2-3 words. Output ONLY the topic, nothing else.
 
-Rules:
-- 2-5 words only
-- Just the topic, like a subject line: "GitHub issue review", "tax call scheduling", "edit access request"
-- No verbs like "asking about" or "wants to know"
-- No punctuation
-- Lowercase
+Examples:
+- "hey can you review the PR I tagged you on?" → "PR review"
+- "what's the latest here?" → "status update"
+- "can I get edit access to that exec summary doc?" → "doc access"
+- "want me to delete it?" → "follow-up"
+- "can we get a tax call set up?" → "tax call"
+- "lol what was claude's answer to that question?" → "claude response"
 
-Message: "${originalMessage}"
+If the message is vague or you can't determine a specific topic, use a generic label like "follow-up" or "open question". NEVER explain your reasoning. Output ONLY 2-3 lowercase words.
 
-Topic:`,
+Message: "${originalMessage}"`,
   });
 
-  return text.trim();
+  const cleaned = text.trim().toLowerCase().replace(/[.,"'!?]/g, "");
+  // If the model returned something too long, it probably over-explained — use fallback
+  if (cleaned.split(" ").length > 5) return "follow-up";
+  return cleaned;
 }
 
 export type ResponseClassification = "answer" | "non-committal";
