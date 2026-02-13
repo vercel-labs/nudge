@@ -104,29 +104,26 @@ export async function POST(req: NextRequest) {
           : "*All caught up!*";
       }
 
-      // Try response_url first (works for both ephemeral and bot messages)
-      const responseUrl = payload.response_url;
-      if (responseUrl) {
-        await fetch(responseUrl, {
+      const finalBlocks = remaining > 0 ? updatedBlocks : [
+        { type: "section", text: { type: "mrkdwn", text: "*All caught up!* No pending follow-ups." } }
+      ];
+      const isEphemeral = payload.container?.is_ephemeral === true;
+
+      if (isEphemeral && payload.response_url) {
+        // Ephemeral messages (from /nudge list) — use response_url to replace
+        await fetch(payload.response_url, {
           method: "POST",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({
-            replace_original: true,
-            blocks: remaining > 0 ? updatedBlocks : [
-              { type: "section", text: { type: "mrkdwn", text: "*All caught up!* No pending follow-ups." } }
-            ],
-          }),
+          body: JSON.stringify({ replace_original: true, blocks: finalBlocks }),
         });
       } else if (user && payload.channel?.id && payload.message?.ts) {
-        // Fallback: update via bot token
+        // Bot messages (from cron reminders) — use chat.update to edit in place
         const slackBot = createSlackClient(user.botToken);
         await slackBot.chat.update({
           channel: payload.channel.id,
           ts: payload.message.ts,
           text: remaining > 0 ? `${remaining} pending follow-ups` : "All caught up!",
-          blocks: remaining > 0 ? updatedBlocks : [
-            { type: "section", text: { type: "mrkdwn", text: "*All caught up!* No pending follow-ups." } }
-          ],
+          blocks: finalBlocks,
         });
       }
 
