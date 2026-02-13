@@ -29,17 +29,36 @@ export function verifySlackRequest(
   );
 }
 
-export function getThreadLink(channel: string, messageTs: string, parentThreadTs?: string): string {
+// Cache workspace URLs so we only call auth.test once per token
+const teamUrlCache = new Map<string, string>();
+
+export async function getTeamUrl(client: WebClient): Promise<string> {
+  const token = (client as any).token as string;
+  if (token && teamUrlCache.has(token)) {
+    return teamUrlCache.get(token)!;
+  }
+  try {
+    const auth = await client.auth.test();
+    // auth.url is like "https://myworkspace.slack.com/"
+    const url = (auth.url as string)?.replace(/\/$/, "") || "https://slack.com";
+    if (token) teamUrlCache.set(token, url);
+    return url;
+  } catch {
+    return "https://slack.com";
+  }
+}
+
+export function getThreadLink(teamUrl: string, channel: string, messageTs: string, parentThreadTs?: string): string {
   // Convert timestamp to link format (remove the dot)
   const linkTs = messageTs.replace(".", "");
 
   // If message is in a thread, link directly to that message in the thread
   if (parentThreadTs && parentThreadTs !== messageTs) {
-    return `https://slack.com/archives/${channel}/p${linkTs}?thread_ts=${parentThreadTs}&cid=${channel}`;
+    return `${teamUrl}/archives/${channel}/p${linkTs}?thread_ts=${parentThreadTs}&cid=${channel}`;
   }
 
   // Standard link format (works for channels and DMs)
-  return `https://slack.com/archives/${channel}/p${linkTs}`;
+  return `${teamUrl}/archives/${channel}/p${linkTs}`;
 }
 
 // Resolve a channel ID to a short label: first name for DMs, #channel for channels

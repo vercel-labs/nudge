@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { createSlackClient, getThreadLink, escapeSlackText, getConversationLabel } from "@/lib/slack";
+import { createSlackClient, getThreadLink, getTeamUrl, escapeSlackText, getConversationLabel } from "@/lib/slack";
 import { getUserFollowUps, updateFollowUp } from "@/lib/redis";
 import { getAllUsers } from "@/lib/db";
 import { summarizeQuestion } from "@/lib/ai";
@@ -96,8 +96,9 @@ export async function GET(req: NextRequest) {
     );
 
     // Add each follow-up as a section with dismiss button
+    const teamUrl = await getTeamUrl(slackUser);
     displayedFollowUps.forEach((f, i) => {
-      const link = getThreadLink(f.channel, f.threadTs, f.parentThreadTs);
+      const link = getThreadLink(teamUrl, f.channel, f.threadTs, f.parentThreadTs);
       const hoursAgo = Math.round((Date.now() - f.createdAt) / (1000 * 60 * 60));
       const preview = escapeSlackText(f.summary || f.originalMessage);
 

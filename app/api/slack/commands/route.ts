@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { waitUntil } from "@vercel/functions";
-import { verifySlackRequest, getThreadLink, escapeSlackText, getConversationLabel, createSlackClient } from "@/lib/slack";
+import { verifySlackRequest, getThreadLink, getTeamUrl, escapeSlackText, getConversationLabel, createSlackClient } from "@/lib/slack";
 import { getUser, updateUser } from "@/lib/db";
 import { getUserFollowUps, updateFollowUp } from "@/lib/redis";
 import { summarizeQuestion } from "@/lib/ai";
@@ -158,8 +158,9 @@ async function handleNudgeCommand(responseUrl: string, userId: string, text: str
       })
     );
 
+    const teamUrl = await getTeamUrl(slackUser);
     followUps.forEach((f, i) => {
-      const link = getThreadLink(f.channel, f.threadTs, f.parentThreadTs);
+      const link = getThreadLink(teamUrl, f.channel, f.threadTs, f.parentThreadTs);
       const hoursAgo = Math.round((Date.now() - f.createdAt) / (1000 * 60 * 60));
       const preview = escapeSlackText(f.summary || f.originalMessage);
 
