@@ -71,10 +71,15 @@ export async function POST(req: NextRequest) {
         });
       }
     } else if (action.action_id.startsWith("dismiss_followup_")) {
+      if (!userId || !channel || !threadTs) {
+        return NextResponse.json({ ok: true });
+      }
+
       await removeFollowUp(userId, channel, threadTs);
 
       // Filter out the dismissed item from the blocks
-      const updatedBlocks = payload.message.blocks.filter(
+      const messageBlocks = payload.message?.blocks || [];
+      const updatedBlocks = messageBlocks.filter(
         (block: { accessory?: { value?: string } }) => {
           if (!block.accessory?.value) return true;
           try {
@@ -86,15 +91,20 @@ export async function POST(req: NextRequest) {
         }
       );
 
+      // Count only follow-up items (blocks with dismiss buttons)
+      const remaining = updatedBlocks.filter(
+        (block: { accessory?: { action_id?: string } }) =>
+          block.accessory?.action_id?.startsWith("dismiss_followup_")
+      ).length;
+
       // Update the header count
       if (updatedBlocks.length > 0 && updatedBlocks[0].text?.text) {
-        const remaining = updatedBlocks.length - 1;
         updatedBlocks[0].text.text = remaining > 0
-          ? `*Pending follow-ups (${remaining}):*`
+          ? `*You have ${remaining} pending follow-up${remaining > 1 ? "s" : ""}:*`
           : "*All caught up!*";
       }
 
-      // Use response_url to update the ephemeral message
+      // Try response_url first (works for both ephemeral and bot messages)
       const responseUrl = payload.response_url;
       if (responseUrl) {
         await fetch(responseUrl, {
@@ -102,10 +112,21 @@ export async function POST(req: NextRequest) {
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({
             replace_original: true,
-            blocks: updatedBlocks.length > 1 ? updatedBlocks : [
+            blocks: remaining > 0 ? updatedBlocks : [
               { type: "section", text: { type: "mrkdwn", text: "*All caught up!* No pending follow-ups." } }
             ],
           }),
+        });
+      } else if (user && payload.channel?.id && payload.message?.ts) {
+        // Fallback: update via bot token
+        const slackBot = createSlackClient(user.botToken);
+        await slackBot.chat.update({
+          channel: payload.channel.id,
+          ts: payload.message.ts,
+          text: remaining > 0 ? `${remaining} pending follow-ups` : "All caught up!",
+          blocks: remaining > 0 ? updatedBlocks : [
+            { type: "section", text: { type: "mrkdwn", text: "*All caught up!* No pending follow-ups." } }
+          ],
         });
       }
 
