@@ -6,7 +6,7 @@ a personal slack agent that reminds you to follow up on unanswered questions.
 
 1. **polls** your slack messages hourly for questions you've asked (messages with `?`)
 2. **tracks** questions that don't have substantive answers yet
-3. **reminds** you via DM at 8am PT and 4pm PT with a digest of pending follow-ups
+3. **reminds** you via DM at 8am PT with a digest of pending follow-ups
 4. **uses AI** to distinguish real answers from non-committal responses ("looking into it", "will check", etc.)
 
 ## add to slack

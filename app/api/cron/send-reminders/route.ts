@@ -24,7 +24,7 @@ export async function GET(req: NextRequest) {
   for (const user of users) {
     // Check if current hour matches user's schedule
     let shouldSend = false;
-    const reminderHours = user.reminderHours ?? [16, 0];
+    const reminderHours = user.reminderHours ?? [16]; // 8am PT only
 
     if (user.reminderInterval) {
       // Interval-based: send if current hour is divisible by interval
@@ -42,7 +42,11 @@ export async function GET(req: NextRequest) {
       continue;
     }
 
-    const followUps = await getUserFollowUps(user.slackUserId);
+    const allFollowUps = await getUserFollowUps(user.slackUserId);
+
+    // Only show questions that are at least 24 hours old
+    const twentyFourHoursAgo = Date.now() - 24 * 60 * 60 * 1000;
+    const followUps = allFollowUps.filter(f => f.createdAt < twentyFourHoursAgo);
 
     if (followUps.length === 0) {
       results.push({ userId: user.slackUserId, sent: 0 });

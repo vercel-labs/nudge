@@ -103,7 +103,11 @@ async function handleNudgeCommand(responseUrl: string, userId: string, text: str
 
   // Show all follow-ups with dismiss buttons
   if (args === "list" || args === "all" || args === "show") {
-    const followUps = await getUserFollowUps(userId);
+    const allFollowUps = await getUserFollowUps(userId);
+
+    // Only show questions that are at least 24 hours old
+    const twentyFourHoursAgo = Date.now() - 24 * 60 * 60 * 1000;
+    const followUps = allFollowUps.filter(f => f.createdAt < twentyFourHoursAgo);
 
     if (followUps.length === 0) {
       await fetch(responseUrl, {
