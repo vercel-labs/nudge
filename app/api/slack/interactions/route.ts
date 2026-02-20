@@ -117,8 +117,11 @@ async function handleInteraction(payload: any) {
     ]);
 
     // Phase 3: get remaining follow-ups (must be after remove)
-    const remainingFollowUps = await getUserFollowUps(userId);
-    remainingFollowUps.sort((a, b) => a.createdAt - b.createdAt);
+    const allFollowUps = await getUserFollowUps(userId);
+    const twentyFourHoursAgo = Date.now() - 24 * 60 * 60 * 1000;
+    const remainingFollowUps = allFollowUps
+      .filter(f => f.createdAt < twentyFourHoursAgo)
+      .sort((a, b) => a.createdAt - b.createdAt);
 
     const blocks = buildFollowUpBlocks(remainingFollowUps, teamUrl);
     const isEphemeral = payload.container?.is_ephemeral === true;
