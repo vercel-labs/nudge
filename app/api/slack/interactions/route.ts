@@ -27,7 +27,13 @@ function buildFollowUpBlocks(followUps: FollowUp[], teamUrl: string): any[] {
   followUps.forEach((f, i) => {
     const link = getThreadLink(teamUrl, f.channel, f.threadTs, f.parentThreadTs);
     const hoursAgo = Math.round((Date.now() - f.createdAt) / (1000 * 60 * 60));
-    const preview = escapeSlackText(f.summary || f.originalMessage);
+    // Use cached summary, or truncate raw message as fallback
+    const displayText = f.summary || (
+      f.originalMessage.length > 50
+        ? f.originalMessage.slice(0, 50) + "..."
+        : f.originalMessage
+    );
+    const preview = escapeSlackText(displayText);
 
     blocks.push({
       type: "section",

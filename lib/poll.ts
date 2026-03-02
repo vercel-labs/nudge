@@ -1,6 +1,6 @@
-import { createSlackClient } from "@/lib/slack";
-import { addFollowUp, isTracked, getUserFollowUps, removeFollowUp, FollowUp } from "@/lib/redis";
-import { classifyResponse, classifyUserMessage } from "@/lib/ai";
+import { createSlackClient, getConversationLabel } from "@/lib/slack";
+import { addFollowUp, isTracked, getUserFollowUps, removeFollowUp, updateFollowUp, FollowUp } from "@/lib/redis";
+import { classifyResponse, classifyUserMessage, summarizeQuestion } from "@/lib/ai";
 import { NudgeUser } from "@/lib/db";
 
 // Check if a message is likely a real question (not a URL with query string, etc.)
@@ -298,6 +298,34 @@ export async function pollUserMessages(user: NudgeUser): Promise<PollStats> {
     }
   } catch (error) {
     stats.errors.push(`Search: ${error}`);
+  }
+
+  // Generate summaries for any follow-ups missing them
+  try {
+    const allFollowUps = await getUserFollowUps(user.slackUserId);
+    const SUMMARY_VERSION = 3;
+    const unsummarized = allFollowUps.filter(f => !f.summary || f.summaryVersion !== SUMMARY_VERSION);
+    if (unsummarized.length > 0) {
+      const slackUser = createSlackClient(user.userToken);
+      await Promise.all(
+        unsummarized.map(async (f) => {
+          try {
+            const [topic, label] = await Promise.all([
+              summarizeQuestion(f.originalMessage),
+              getConversationLabel(slackUser, f.channel),
+            ]);
+            await updateFollowUp(f.userId, f.channel, f.threadTs, {
+              summary: `${label} - ${topic}`,
+              summaryVersion: SUMMARY_VERSION,
+            });
+          } catch {
+            // Non-critical, will retry next poll
+          }
+        })
+      );
+    }
+  } catch {
+    // Non-critical
   }
 
   return stats;
