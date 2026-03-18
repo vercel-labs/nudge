@@ -72,7 +72,26 @@ async function recheckFollowUp(
         }
       }
     } else if (isDM) {
-      // For DMs and group DMs: simple logic - if anyone else responded after the question, it's answered
+      // For DMs and group DMs: check thread replies first, then flat history
+      const repliesResult = await slackUser.conversations.replies({
+        channel,
+        ts: threadTs,
+        limit: 50,
+      });
+
+      const replies = (repliesResult.messages || []).slice(1);
+
+      for (const reply of replies) {
+        if (reply.user !== user.slackUserId && reply.text) {
+          const classification = await classifyResponse(originalMessage, reply.text);
+          if (classification === "answer") return true;
+        } else if (reply.user === user.slackUserId && reply.text) {
+          const classification = await classifyUserMessage(originalMessage, reply.text);
+          if (classification === "self-resolved") return true;
+        }
+      }
+
+      // Also check flat conversation history for non-threaded responses
       const historyResult = await slackUser.conversations.history({
         channel,
         oldest: threadTs,
@@ -83,10 +102,9 @@ async function recheckFollowUp(
       const allMessages = (historyResult.messages || []).reverse();
       const messagesAfterQuestion = allMessages.slice(1);
 
-      // Simple check: did anyone else respond?
       for (const msg of messagesAfterQuestion) {
+        if (msg.thread_ts && msg.thread_ts !== msg.ts) continue;
         if (msg.user !== user.slackUserId) {
-          // Someone else responded - consider it answered
           return true;
         }
       }
@@ -233,24 +251,49 @@ export async function pollUserMessages(user: NudgeUser): Promise<PollStats> {
             }
           }
         } else if (isDM) {
-          // For DMs/group DMs: simple logic - if anyone else responded after the question, it's answered
-          const historyResult = await slackUser.conversations.history({
+          // For DMs/group DMs: check thread replies first, then flat history
+          const repliesResult = await slackUser.conversations.replies({
             channel,
-            oldest: messageTs,
+            ts: messageTs,
             limit: 50,
-            inclusive: true,
           });
 
-          // Messages come newest-first, reverse to get chronological order
-          const allMessages = (historyResult.messages || []).reverse();
-          const messagesAfterQuestion = allMessages.slice(1);
+          const replies = (repliesResult.messages || []).slice(1);
 
-          // Simple check: did anyone else respond?
-          for (const msg of messagesAfterQuestion) {
-            if (msg.user !== user.slackUserId) {
-              // Someone else responded - consider it answered
-              hasAnswer = true;
-              break;
+          for (const reply of replies) {
+            if (reply.user !== user.slackUserId && reply.text) {
+              const classification = await classifyResponse(text, reply.text);
+              if (classification === "answer") {
+                hasAnswer = true;
+                break;
+              }
+            } else if (reply.user === user.slackUserId && reply.text) {
+              const classification = await classifyUserMessage(text, reply.text);
+              if (classification === "self-resolved") {
+                hasAnswer = true;
+                break;
+              }
+            }
+          }
+
+          // Also check flat conversation history for non-threaded responses
+          if (!hasAnswer) {
+            const historyResult = await slackUser.conversations.history({
+              channel,
+              oldest: messageTs,
+              limit: 50,
+              inclusive: true,
+            });
+
+            const allMessages = (historyResult.messages || []).reverse();
+            const messagesAfterQuestion = allMessages.slice(1);
+
+            for (const msg of messagesAfterQuestion) {
+              if (msg.thread_ts && msg.thread_ts !== msg.ts) continue;
+              if (msg.user !== user.slackUserId) {
+                hasAnswer = true;
+                break;
+              }
             }
           }
         } else {
